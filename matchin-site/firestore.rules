@@ -11,6 +11,10 @@ service cloud.firestore {
     function meetPath(mid) { return /databases/$(database)/documents/meets/$(mid); }
     function monthId() { return uid() + '_' + string(request.time.year() * 100 + request.time.month()); }
     function shortText(v, n) { return v is string && v.size() <= n; }
+    // 운영자: 이 Google 계정만
+    function isAdmin() { return signedIn() && request.auth.token.email == 'lovesick2154@gmail.com' && request.auth.token.email_verified == true; }
+    // 이용 정지 중이 아님
+    function notBanned() { return !exists(/databases/$(database)/documents/bans/$(uid())) || get(/databases/$(database)/documents/bans/$(uid())).data.until < request.time; }
 
     match /users/{userId} {
       allow read: if signedIn();
@@ -26,9 +30,10 @@ service cloud.firestore {
 
     match /reviews/{rid} {
       allow read: if signedIn();
-      allow create, update: if signedIn()
+      allow create, update: if signedIn() && notBanned()
         && request.resource.data.uid == uid()
         && rid == request.resource.data.st + '_' + uid()
+        && request.resource.data.get('hidden', false) == (resource == null ? false : resource.data.get('hidden', false))
         && request.resource.data.s is int && request.resource.data.s >= 1 && request.resource.data.s <= 5
         && shortText(request.resource.data.t, 500)
         && (request.resource.data.v == 'none'
@@ -36,6 +41,8 @@ service cloud.firestore {
                 && uid() in get(meetPath(request.resource.data.meet)).data.checkedIn
                 && get(meetPath(request.resource.data.meet)).data.store == request.resource.data.st));
       allow delete: if signedIn() && resource.data.uid == uid();
+      // 운영자: 숨김만 바꿀 수 있음
+      allow update: if isAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['hidden', 'hiddenReason']);
     }
 
     match /usage/{key} {
@@ -53,7 +60,7 @@ service cloud.firestore {
 
     match /meets/{mid} {
       allow read: if signedIn();
-      allow create: if signedIn()
+      allow create: if signedIn() && notBanned()
         && request.resource.data.host == uid()
         && request.resource.data.members == [uid()]
         && request.resource.data.checkedIn == []
@@ -62,13 +69,16 @@ service cloud.firestore {
         && shortText(request.resource.data.title, 40);
       allow update: if signedIn() && (
         // 주최자: 제목·상태만
-        (resource.data.host == uid()
+        (resource.data.host == uid() && resource.data.status != 'hidden'
+          && request.resource.data.status in ['open', 'cancelled']
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'status']))
+        // 운영자: 상태(숨김·취소)와 사유만
+        || (isAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'hiddenReason']))
         // 참여: 나만 추가, 정원 이내, 이번 달 사용량이 함께 1 늘어남
         || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members'])
           && request.resource.data.members.toSet().difference(resource.data.members.toSet()) == [uid()].toSet()
           && request.resource.data.members.size() <= resource.data.cap
-          && resource.data.status == 'open'
+          && resource.data.status == 'open' && notBanned()
           && getAfter(/databases/$(database)/documents/usage/$(monthId())).data.count
              == (exists(/databases/$(database)/documents/usage/$(monthId()))
                  ? get(/databases/$(database)/documents/usage/$(monthId())).data.count + 1 : 1))
@@ -95,7 +105,7 @@ service cloud.firestore {
       }
       match /messages/{msgId} {
         allow read: if signedIn() && uid() in get(meetPath(mid)).data.members;
-        allow create: if signedIn() && uid() in get(meetPath(mid)).data.members
+        allow create: if signedIn() && notBanned() && uid() in get(meetPath(mid)).data.members
           && request.resource.data.uid == uid()
           && (shortText(request.resource.data.get('t', ''), 500) && (request.resource.data.get('t', '') != '' || request.resource.data.get('card', 0) is string));
       }
@@ -103,14 +113,14 @@ service cloud.firestore {
 
     match /communities/{cid}/messages/{msgId} {
       allow read: if signedIn();
-      allow create: if signedIn() && cid in ['heukseok', 'gopchang', 'freshmen']
+      allow create: if signedIn() && notBanned() && cid in ['heukseok', 'gopchang', 'freshmen']
         && request.resource.data.uid == uid()
         && (shortText(request.resource.data.get('t', ''), 500) && (request.resource.data.get('t', '') != '' || request.resource.data.get('card', 0) is string));
     }
 
     match /ratings/{rid} {
       allow read: if signedIn();
-      allow create: if signedIn()
+      allow create: if signedIn() && notBanned()
         && request.resource.data.rater == uid()
         && rid == request.resource.data.meet + '_' + uid() + '_' + request.resource.data.ratee
         && request.resource.data.ratee != uid()
@@ -125,8 +135,22 @@ service cloud.firestore {
       allow create: if signedIn() && request.resource.data.by == uid()
         && request.resource.data.type in ['review', 'meet', 'user']
         && request.resource.data.reason is string && request.resource.data.reason.size() <= 40
-        && shortText(request.resource.data.get('memo', ''), 300);
-      allow read, update, delete: if false;
+        && shortText(request.resource.data.get('memo', ''), 300)
+        && request.resource.data.status == 'open';
+      allow read, delete: if isAdmin();
+      allow update: if isAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'handledAt']);
+    }
+
+    // 이용 정지: 운영자만 쓰기, 본인 확인용으로 로그인 회원 읽기
+    match /bans/{userId} {
+      allow read: if signedIn();
+      allow write: if isAdmin() && userId != uid();
+    }
+
+    // 공지: 운영자만 쓰기
+    match /notices/{nid} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
     }
   }
 }

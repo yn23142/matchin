@@ -33,7 +33,7 @@ let B = null;
 const S = {
   authUser: null, me: null, ready: false, users: {}, reviews: [], meets: [], ratings: [], used: 0,
   tab: 'home', stack: [{ s: 'home' }], sheet: null, err: '', draft: null, form: {}, feedF: 'all', meetF: 'all', mapMode: 'score', mapSel: null,
-  auth: { mode: 'login', email: '', busy: false }, msgs: {}, chatDraft: '', code: {}, qr: {}, storeQ: '', meetsLoaded: false
+  auth: { mode: 'login', email: '', busy: false }, allReviews: [], allMeets: [], bans: [], reports: [], notice: null, adminF: 'open', msgs: {}, chatDraft: '', code: {}, qr: {}, storeQ: '', meetsLoaded: false
 };
 const COMMS = [
   { id: 'heukseok', title: '흑석·상도 동네 미식', sub: '중앙대·흑석·상도 주민', icon: 'house', c: ['#FFF1EC', '#FF5B35'] },
@@ -41,6 +41,10 @@ const COMMS = [
   { id: 'gopchang', title: '곱창·내장 러버스', sub: '곱창 모임 공지·후기 공유', icon: 'pepper', c: ['#FDE0E6', '#D2335B'] }
 ];
 const POLICY_DATE = '2026-11-24';
+const ADMIN_EMAILS = ['lovesick2154@gmail.com'];
+const isAdmin = () => !!(S.authUser && ADMIN_EMAILS.includes(S.authUser.email) && S.authUser.verified);
+const myBan = () => { const b = S.bans.find(x => x.id === me()); return b && b.until > Date.now() ? b : null; };
+const banned = () => { const b = myBan(); if (b) { toast(`이용이 정지된 상태예요 (${new Date(b.until).toLocaleDateString('ko-KR')}까지)`, true); return true; } return false; };
 const REPORT_REASONS = ['광고·협찬 의심', '허위·조작 후기', '욕설·비방·혐오', '개인정보 노출', '노쇼·불쾌한 행동', '기타'];
 const TAGS = ['신입생 환영', '복학생 환영', '혼밥러 환영', '첫 모임', '저녁', '점심'];
 
@@ -116,6 +120,7 @@ const errBox = () => S.err ? `<div class="err">${I('warning-circle', 18, 'f')}${
 const cta = (inner, meta = '') => `<div class="cta">${meta ? `<div class="meta">${meta}</div>` : ''}${inner}</div>`;
 function tabbar(){
   const T = [['home', '홈', 'house'], ['stores', '지도', 'map-trifold'], ['meets', '모임', 'users-three'], ['chat', '채팅', 'chat-circle-dots'], ['me', '마이', 'user-circle']];
+  if (isAdmin()) { const n = S.reports.filter(r => r.status === 'open').length; T.push(['admin', n ? `운영 ${n}` : '운영', 'shield-check']); }
   return `<nav class="tabbar">${T.map(([k, n, i]) => `<button type="button" class="${S.tab === k ? 'on' : ''}" data-act="tab" data-t="${k}">${I(i, 26, S.tab === k ? 'f' : 'r')}${n}</button>`).join('')}</nav>`;
 }
 const STARTXT = ['', '별로예요', '아쉬워요', '괜찮아요', '좋아요', '최고예요'];
@@ -227,7 +232,7 @@ const screens = {
     const F = [['all', '전체'], ['dine', '동석 인증'], ['none', '미인증']];
     const next = upcoming().filter(m => (m.members || []).includes(me()))[0];
     return `${tabHead(`<span class="wm"><i>${I('fork-knife', 15, 'f')}</i>MATCHIN</span><span class="chip acc" style="margin-left:6px">무료 베타</span>`, '')}
-    <div class="scroll">${next ? `<button type="button" class="alert" data-act="go" data-s="meet" data-id="${next.id}"><span class="ic">${I('calendar-check', 24, 'f')}</span><span style="flex:1;min-width:0"><b>${esc(next.title)}</b><span class="s"><span class="live"></span>${when(next.startAt)} · ${esc(ST(next.store).name)}</span></span><span style="color:#6B7684">${I('caret-right', 18)}</span></button>` : ''}
+    <div class="scroll">${S.notice ? `<div class="notice">${I('megaphone', 18, 'f')}<span>${esc(S.notice.text)}</span></div>` : ''}${myBan() ? `<div class="err" style="margin:4px 20px 10px">${I('warning-circle', 18, 'f')}이용이 정지된 상태예요 (${new Date(myBan().until).toLocaleDateString('ko-KR')}까지). 사유: ${esc(myBan().reason)}</div>` : ''}${next ? `<button type="button" class="alert" data-act="go" data-s="meet" data-id="${next.id}"><span class="ic">${I('calendar-check', 24, 'f')}</span><span style="flex:1;min-width:0"><b>${esc(next.title)}</b><span class="s"><span class="live"></span>${when(next.startAt)} · ${esc(ST(next.store).name)}</span></span><span style="color:#6B7684">${I('caret-right', 18)}</span></button>` : ''}
       <div class="trust"><span class="ico">${I('shield-check', 18, 'f')}</span><span><b>광고·협찬 없는</b> 솔직 후기만. 모임에서 같이 먹고 쓴 후기는 <b>동석 인증</b>으로 표시돼요.</span></div>
       <div class="filters" style="margin-top:10px">${F.map(([k, n]) => `<button type="button" class="${S.feedF === k ? 'on' : ''}" data-act="feedF" data-v="${k}">${n}</button>`).join('')}</div>
       ${list.map(r => postCard(r)).join('') || empty('note-pencil', '아직 후기가 없어요', '첫 후기를 남겨 동네 맛집 지도를 함께 만들어요', `<button type="button" class="btn pri" style="width:auto;padding:12px 22px" data-act="go" data-s="write">첫 후기 쓰기</button>`)}
@@ -394,6 +399,34 @@ const screens = {
         <div class="row" style="gap:14px;margin-top:18px;font-size:13px"><a href="terms.html" target="_blank" rel="noopener" style="color:var(--g600)">이용약관</a><a href="privacy.html" target="_blank" rel="noopener" style="color:var(--g600);font-weight:700">개인정보 처리방침</a><span class="sp"></span><button type="button" class="toggle mute" data-act="go" data-s="withdraw">회원 탈퇴</button></div></div>
     </div>${tabbar()}`;
   },
+  admin(){
+    if (!isAdmin()) return `${tabHead('<h1>운영</h1>')}<div class="scroll">${empty('lock-simple', '운영자만 볼 수 있어요', '')}</div>${tabbar()}`;
+    const users = Object.values(S.users), F = S.adminF, now = Date.now();
+    const open = S.reports.filter(r => r.status === 'open');
+    const month = monthKey();
+    const stat = [['회원', users.length], ['후기', S.allReviews.length], ['모임', S.allMeets.length], ['이번 달 모임', S.allMeets.filter(m => monthKey(m.startAt) === month).length]];
+    const tabs = [['open', `신고 ${open.length}`], ['hidden', '숨김'], ['users', '회원'], ['notice', '공지']];
+    const target = r => {
+      if (r.type === 'review') { const v = S.allReviews.find(x => x.id === r.target); if (!v) return `<div class="cap2">삭제된 후기</div>`; const st = ST(v.st); return `<div class="atgt"><b>${esc(nick(v.uid))}</b>의 후기 · ${esc(st ? st.name : '')} ${stars(v.s, 11)}${v.hidden ? ' <span class="chip">숨김</span>' : ''}<div class="cap2" style="margin-top:3px">${esc(v.t || '(내용 없음)')}</div></div>`; }
+      if (r.type === 'meet') { const m = S.allMeets.find(x => x.id === r.target); if (!m) return `<div class="cap2">삭제된 모임</div>`; return `<div class="atgt"><b>${esc(m.title)}</b> · 주최 ${esc(nick(m.host))}${m.status === 'hidden' ? ' <span class="chip">숨김</span>' : ''}<div class="cap2" style="margin-top:3px">${esc(m.intro && m.intro.must || '')}</div></div>`; }
+      return '';
+    };
+    const ownerOf = r => r.type === 'review' ? (S.allReviews.find(x => x.id === r.target) || {}).uid : (S.allMeets.find(x => x.id === r.target) || {}).host;
+    let body = '';
+    if (F === 'open') body = open.map(r => `<div class="acard"><div class="row" style="gap:6px"><span class="chip acc">${esc(r.reason)}</span><span class="chip">${r.type === 'review' ? '후기' : '모임'}</span><span class="sp"></span><span class="cap2">${ago(r.createdAt)} · 신고 ${esc(nick(r.by))}</span></div>${r.memo ? `<p class="cap" style="margin:8px 0 0">"${esc(r.memo)}"</p>` : ''}${target(r)}
+        <div class="row" style="gap:6px;margin-top:10px;flex-wrap:wrap"><button type="button" class="toggle" data-act="aHide" data-rep="${esc(r.id)}">숨기고 처리</button><button type="button" class="toggle" data-act="aBan" data-uid="${esc(ownerOf(r) || '')}" data-rep="${esc(r.id)}">작성자 7일 정지</button><button type="button" class="toggle mute" data-act="aReject" data-rep="${esc(r.id)}">문제없음(기각)</button></div></div>`).join('') || empty('check-circle', '처리할 신고가 없어요', '새 신고가 들어오면 운영 탭에 숫자가 떠요');
+    if (F === 'hidden') { const hr = S.allReviews.filter(r => r.hidden), hm = S.allMeets.filter(m => m.status === 'hidden');
+      body = hr.map(v => `<div class="acard"><div class="row"><span><b>${esc(nick(v.uid))}</b>의 후기 · ${esc((ST(v.st) || {}).name || '')}</span><span class="sp"></span><button type="button" class="toggle" data-act="aUnhideR" data-id="${esc(v.id)}">되돌리기</button></div><div class="cap2" style="margin-top:4px">${esc(v.t || '')}${v.hiddenReason ? ` · 사유: ${esc(v.hiddenReason)}` : ''}</div></div>`).join('')
+        + hm.map(m => `<div class="acard"><div class="row"><span>모임 <b>${esc(m.title)}</b></span><span class="sp"></span><button type="button" class="toggle" data-act="aUnhideM" data-id="${esc(m.id)}">되돌리기</button></div><div class="cap2" style="margin-top:4px">주최 ${esc(nick(m.host))}${m.hiddenReason ? ` · 사유: ${esc(m.hiddenReason)}` : ''}</div></div>`).join('') || empty('lock-simple', '숨긴 항목이 없어요', ''); }
+    if (F === 'users') body = users.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).map(u => { const b = S.bans.find(x => x.id === u.id && x.until > now); const n = S.allReviews.filter(r => r.uid === u.id).length;
+      return `<div class="acard row" style="gap:10px">${av(u.id)}<div style="flex:1;min-width:0"><b>${esc(u.nickname)}</b> ${gb(gradeOf(u.id))}<div class="cap2">${esc(u.status || '-')} · 후기 ${n} · 신고받음 ${S.reports.filter(r => ownerOf(r) === u.id).length}${b ? ` · <b style="color:#D92D20">정지 ~${new Date(b.until).toLocaleDateString('ko-KR')}</b>` : ''}</div></div>${u.id === me() ? '<span class="cap2">나</span>' : b ? `<button type="button" class="toggle" data-act="aUnban" data-uid="${esc(u.id)}">정지 해제</button>` : `<button type="button" class="toggle mute" data-act="aBan" data-uid="${esc(u.id)}">7일 정지</button>`}</div>`; }).join('');
+    if (F === 'notice') body = `<div class="pad"><p class="cap" style="margin:4px 0 10px">홈 화면 맨 위에 모든 회원에게 보여요. 비우고 저장하면 내려가요.</p><textarea id="a-notice" maxlength="200" placeholder="예: 12/9(화) 흑석시장 신입생 환영 모임 열려요!" style="min-height:80px">${esc(S.notice ? S.notice.text : '')}</textarea><button type="button" class="btn pri" data-act="aNotice" style="margin-top:12px">공지 저장</button></div>`;
+    return `${tabHead('<h1>운영</h1>', '<span class="chip dark">운영자</span>')}<div class="scroll">
+      <div class="stats" style="grid-template-columns:repeat(4,1fr)">${stat.map(([n, v]) => `<div><b>${v}</b><span>${n}</span></div>`).join('')}</div>
+      <div class="filters" style="margin-top:10px">${tabs.map(([k, n]) => `<button type="button" class="${F === k ? 'on' : ''}" data-act="adminF" data-v="${k}">${n}</button>`).join('')}</div>
+      <div style="padding:0 16px">${body}</div>${errBox()}
+      <p class="hint pad" style="margin-top:16px">운영 권한은 서버 보안 규칙에서 이 계정만 허용돼요. 숨김은 삭제가 아니라 되돌릴 수 있어요.</p></div>${tabbar()}`;
+  },
   withdraw(){
     const mine = S.reviews.filter(r => r.uid === me()).length, hosting = upcoming().filter(m => m.host === me() && m.status !== 'cancelled').length;
     return `${navBar('회원 탈퇴')}<div class="scroll"><div class="pad">
@@ -432,7 +465,7 @@ function initMap(){
   mapHost = document.createElement('div'); mapHost.className = 'mapHost';
   document.getElementById('mapSlot').appendChild(mapHost);
   MAP = L.map(mapHost, { zoomControl: false, minZoom: 13, maxZoom: 19 });
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { attribution: '&copy; OpenStreetMap contributors &copy; CARTO', subdomains: 'abcd', maxZoom: 19 }).addTo(MAP);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors', maxZoom: 19 }).addTo(MAP);
   MAP.attributionControl.setPrefix(false);
   STATIONS.forEach(([n, la, lo, ln]) => L.marker([la, lo], { interactive: false, icon: L.divIcon({ className: '', html: `<div class="stn">${ln.map(([t, c]) => `<i style="background:${c}">${t}</i>`).join('')}${n}</div>`, iconSize: [0, 0] }) }).addTo(MAP));
   PINS = L.layerGroup().addTo(MAP); mapHome();
@@ -529,12 +562,12 @@ const A = {
   crit: d => { S.draft.crit[d.k] = +d.v; const c = CRIT.find(x => x.k === d.k); S.draft.kw = S.draft.kw.filter(k => !(c.pos.includes(k) && +d.v === 1) && !(c.neg.includes(k) && +d.v === 3)); render(); },
   kwT: d => { const i = S.draft.kw.indexOf(d.v); if (i >= 0) S.draft.kw.splice(i, 1); else S.draft.kw.push(d.v); render(); },
   revisit: d => { S.draft.revisit = +d.v; render(); },
-  postReview: () => saveDraft(false),
-  dinePost: () => saveDraft(true),
+  postReview: () => { if (!banned()) saveDraft(false); },
+  dinePost: () => { if (!banned()) saveDraft(true); },
   delReview: d => { if (!window.confirm || window.confirm('이 후기를 삭제할까요?')) run(() => B.deleteReview(d.st, me()), '삭제했어요'); },
   join: d => { S.err = ''; S.sheet = { type: 'join', id: d.id }; render(); },
   closeSheet: () => { S.sheet = null; S.err = ''; render(); },
-  confirmJoin: () => { const id = S.sheet.id, m = M(id); if (S.used >= MONTHLY_FREE) { S.err = `이번 달 무료 참여 ${MONTHLY_FREE}회를 모두 썼어요.`; return render(); } if ((m.members || []).length >= m.cap) { S.err = '마감됐어요.'; return render(); }
+  confirmJoin: () => { if (banned()) return; const id = S.sheet.id, m = M(id); if (S.used >= MONTHLY_FREE) { S.err = `이번 달 무료 참여 ${MONTHLY_FREE}회를 모두 썼어요.`; return render(); } if ((m.members || []).length >= m.cap) { S.err = '마감됐어요.'; return render(); }
     run(async () => { await B.joinMeet(id, me(), S.used); S.sheet = null; await B.sendMessage(`meets/${id}/messages`, { uid: me(), t: '참여했어요! 반가워요 🙌' }); }, '참여 완료 · 대화방이 열렸어요'); },
   leave: d => run(() => B.leaveMeet(d.id, me()), '참여를 취소했어요'),
   cancelMeet: d => { if (!window.confirm || window.confirm('모임을 취소할까요?')) run(() => B.cancelMeet(d.id), '모임을 취소했어요'); },
@@ -550,6 +583,7 @@ const A = {
   ctag: d => { const t = S.form.tags, i = t.indexOf(d.v); if (i >= 0) t.splice(i, 1); else t.push(d.v); render(); },
   pledge: () => { S.form.pledge = !S.form.pledge; render(); },
   publish: () => {
+    if (banned()) return;
     const f = S.form, t = Date.parse(f.when);
     if (!f.title.trim()) { S.err = '모임 이름을 적어 주세요.'; return render(); }
     if (!t || t < Date.now() + 30 * 60e3) { S.err = '날짜·시간은 지금부터 30분 이후로 골라 주세요.'; return render(); }
@@ -566,6 +600,14 @@ const A = {
   resendVerify: () => run(() => B.resendVerify(), '인증 메일을 다시 보냈어요'),
   checkVerify: () => run(async () => { const ok = await B.reloadUser(); if (ok) { S.authUser = { ...S.authUser, verified: true }; } else throw { code: 'not-verified' }; }, '이메일 인증 완료'),
   withdraw: () => { const t = val('wd-confirm').trim(); if (t !== '탈퇴') { S.err = "확인란에 '탈퇴'라고 적어 주세요."; return render(); } run(async () => { await B.deleteAccount(me()); S.form = {}; }, '탈퇴했어요. 그동안 고마웠어요'); },
+  adminF: d => { S.adminF = d.v; render(); },
+  aHide: d => { const r = S.reports.find(x => x.id === d.rep); if (!r) return; run(async () => { if (r.type === 'review') await B.hideReview(r.target, true, r.reason); else await B.setMeetStatus(r.target, 'hidden', r.reason); await B.setReport(r.id, 'done'); }, '숨기고 처리했어요'); },
+  aReject: d => run(() => B.setReport(d.rep, 'rejected'), '기각했어요'),
+  aBan: d => { if (!d.uid) { S.err = '작성자를 찾을 수 없어요.'; return render(); } if (d.uid === me()) return; const r = d.rep ? S.reports.find(x => x.id === d.rep) : null; run(async () => { await B.ban(d.uid, 7, r ? r.reason : '운영 정책 위반', me()); if (r) { if (r.type === 'review') await B.hideReview(r.target, true, r.reason); else await B.setMeetStatus(r.target, 'hidden', r.reason); await B.setReport(r.id, 'done'); } }, '7일 정지했어요'); },
+  aUnban: d => run(() => B.unban(d.uid), '정지를 해제했어요'),
+  aUnhideR: d => run(() => B.hideReview(d.id, false, ''), '되돌렸어요'),
+  aUnhideM: d => run(() => B.setMeetStatus(d.id, 'open', ''), '되돌렸어요'),
+  aNotice: () => run(() => B.setNotice(val('a-notice').trim().slice(0, 200), me()), '공지를 저장했어요'),
   rsvOpen: d => { S.sheet = { type: 'rsv', id: d.id }; render(); },
   shareOpen: d => { S.sheet = { type: 'share', id: d.id }; render(); },
   pickCard: () => { S.storeQ = ''; S.sheet = { type: 'pick', room: cur().id }; render(); },
@@ -579,7 +621,7 @@ async function saveDraft(dine){
   if (!dine && existing && existing.v === 'dine') { S.err = '이 매장에는 이미 동석 인증 후기가 있어요. 일반 후기로 덮어쓸 수 없어요.'; return render(); }
   await run(async () => { await B.saveReview(r); S.draft = null; if (dine) { if (cur().s === 'dineReview') S.stack.pop(); } else { S.tab = 'home'; S.stack = [{ s: 'home' }]; } }, existing ? '후기를 고쳤어요' : '후기를 올렸어요');
 }
-function sendMsg(t){ t = (t || '').trim().slice(0, 500); if (!t) return; const r = roomsOf().find(x => x.id === cur().id); if (!r) return; S.chatDraft = ''; B.sendMessage(r.path, { uid: me(), t }).catch(e => { S.err = errText(e); toast(S.err); }); }
+function sendMsg(t){ t = (t || '').trim().slice(0, 500); if (!t || banned()) return; const r = roomsOf().find(x => x.id === cur().id); if (!r) return; S.chatDraft = ''; B.sendMessage(r.path, { uid: me(), t }).catch(e => { S.err = errText(e); toast(S.err); }); }
 
 /* ---------- 렌더 ---------- */
 let msgUnsub = null, msgPath = null, lastKey = '';
@@ -640,8 +682,11 @@ let unsubs = [];
       let gotProfile = false;
       unsubs.push(B.watchProfile(u.uid, p => { S.me = p; if (!gotProfile) { gotProfile = true; S.ready = true; } render(); }));
       unsubs.push(B.watchUsers(list => { S.users = Object.fromEntries(list.map(x => [x.id, x])); render(); }));
-      unsubs.push(B.watchReviews(list => { S.reviews = list; render(); }));
-      unsubs.push(B.watchMeets(list => { S.meets = list.map(m => ({ members: [], checkedIn: [], ...m })); S.meetsLoaded = true; render(); }));
+      unsubs.push(B.watchReviews(list => { S.allReviews = list; S.reviews = list.filter(r => !r.hidden); render(); }));
+      unsubs.push(B.watchMeets(list => { S.allMeets = list.map(m => ({ members: [], checkedIn: [], ...m })); S.meets = S.allMeets.filter(m => m.status !== 'hidden'); S.meetsLoaded = true; render(); }));
+      unsubs.push(B.watchNotice(n => { S.notice = n; render(); }));
+      unsubs.push(B.watchBans(list => { S.bans = list; render(); }));
+      if (ADMIN_EMAILS.includes(u.email) && u.verified) unsubs.push(B.watchReports(list => { S.reports = list; render(); }, e => console.warn('reports', e)));
       unsubs.push(B.watchRatings(list => { S.ratings = list; render(); }));
       unsubs.push(B.watchUsage(u.uid, n => { S.used = n; render(); }));
     } else { S.tab = 'home'; S.stack = [{ s: 'home' }]; }
