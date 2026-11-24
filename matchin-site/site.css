@@ -461,3 +461,11 @@ html,body{background:#EEF0F3}
 .acard{border:1px solid var(--g200);border-radius:14px;padding:12px 14px;margin-top:10px;font-size:14px}
 .atgt{margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--g50);font-size:13.5px}
 .tabbar button{min-width:0}
+.selst{display:flex;gap:10px;align-items:center;margin-top:10px;padding:10px 12px;border-radius:14px;background:var(--accs,#FFF1EC)}
+.kres{margin-top:10px;border:1px solid var(--g200);border-radius:14px;padding:4px 10px}
+.kr{display:flex;gap:10px;align-items:center;width:100%;border:0;background:none;padding:10px 2px;text-align:left;border-bottom:1px solid var(--g100);color:var(--g700)}
+.kr:last-of-type{border-bottom:0}.kr b{display:block;color:var(--ink);font-size:14.5px}.kr .cap2{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.phadd{display:flex;gap:8px;align-items:center;justify-content:center;height:88px;border:1.5px dashed var(--g300,#D1D6DB);border-radius:14px;color:var(--g600);font-weight:600;cursor:pointer;margin-top:8px}
+.phprev{margin-top:8px}.phprev img{width:100%;max-height:260px;object-fit:cover;border-radius:14px;display:block;margin-bottom:8px}
+.rphoto{width:100%;max-height:320px;object-fit:cover;border-radius:14px;margin:10px 0 4px;display:block}
+.kakaolink{display:inline-flex;gap:6px;align-items:center;margin-top:10px;font-size:13.5px;font-weight:600;color:#3A1D1D;background:#FEE500;padding:7px 12px;border-radius:999px;text-decoration:none}

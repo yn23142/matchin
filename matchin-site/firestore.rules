@@ -36,6 +36,7 @@ service cloud.firestore {
         && request.resource.data.get('hidden', false) == (resource == null ? false : resource.data.get('hidden', false))
         && request.resource.data.s is int && request.resource.data.s >= 1 && request.resource.data.s <= 5
         && shortText(request.resource.data.t, 500)
+        && shortText(request.resource.data.get('photo', ''), 220000)
         && (request.resource.data.v == 'none'
             || (request.resource.data.v == 'dine'
                 && uid() in get(meetPath(request.resource.data.meet)).data.checkedIn
@@ -128,6 +129,22 @@ service cloud.firestore {
         && uid() in get(meetPath(request.resource.data.meet)).data.checkedIn
         && request.resource.data.ratee in get(meetPath(request.resource.data.meet)).data.checkedIn;
       allow delete: if signedIn() && resource.data.rater == uid();
+    }
+
+    // 실제 장소(카카오 검색 결과): 누구나 등록, 대표 사진은 비어 있을 때만 회원 사진으로 채움
+    match /places/{pid} {
+      allow read: if signedIn();
+      allow create: if signedIn() && notBanned() && pid.matches('k[0-9]+')
+        && request.resource.data.by == uid()
+        && shortText(request.resource.data.name, 60)
+        && request.resource.data.lat is number && request.resource.data.lng is number
+        && !('thumb' in request.resource.data);
+      allow update: if (signedIn() && notBanned()
+          && resource.data.get('thumb', '') == ''
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['thumb', 'thumbBy'])
+          && request.resource.data.thumbBy == uid()
+          && shortText(request.resource.data.thumb, 40000))
+        || (isAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['thumb', 'thumbBy', 'name', 'cat']));
     }
 
     // 신고: 쓰기만 가능, 운영자가 Firebase 콘솔에서 확인

@@ -2,6 +2,7 @@ import { ICONS } from './vendor/icons.js';
 import { GRADES, VER, MONTHLY_FREE, divIndex, divWeight, CRIT, LV3, VISIT, REVISIT, STORES0, CATS, NEAR, STATIONS } from './data.js';
 import { makeBackend, monthKey } from './backend.js';
 import { toString as qrSvg } from './vendor/qrcode.js';
+import { searchPlaces, placesReady } from './places.js';
 
 /* ---------- 기본 도구 ---------- */
 const $app = document.getElementById('app');
@@ -15,12 +16,14 @@ const AVC = [['#FFE3D8','#C2410C'],['#E3ECFF','#1D4ED8'],['#FFF0C7','#A16207'],[
 const nick = uid => (S.users[uid] && S.users[uid].nickname) || '탈퇴한 회원';
 const av = (uid, cls = '') => { const n = nick(uid); const c = AVC[(n.charCodeAt(0) || 0) % AVC.length]; return `<span class="av ${cls}" style="background:${c[0]};color:${c[1]}">${esc(n.slice(0, 1))}</span>`; };
 const GUESS = [['국밥',/순대|국밥|감자탕|뼈다귀|해장|칼국수|국수|면옥|곰탕/],['곱창',/곱창|막창|대창/],['회',/수산|회|스시|초밥|연어|사시미|Sushi/],['고기',/갈비|고기|화로|구이|족발|보쌈|삼겹|생갈비/],['분식',/떡볶이|김밥|분식|덮다|카츠/],['중식',/반점|마라|양꼬치|짜장|짬뽕|중화|사이공|계림원/]];
-const STORES = STORES0.concat(NEAR.map(([name, lat, lng], i) => ({ id: 'n' + i, name, lat, lng, area: '주변 매장', menu: [], rsv: {}, cat: (GUESS.find(([, re]) => re.test(name)) || ['한식'])[0] })));
+const BASE_STORES = STORES0.concat(NEAR.map(([name, lat, lng], i) => ({ id: 'n' + i, name, lat, lng, area: '주변 매장', menu: [], rsv: {}, cat: (GUESS.find(([, re]) => re.test(name)) || ['한식'])[0] })));
 CATS['한식'] = CATS['한식'] || ['#FFE9DA', '#E8762E', 'bowl-food'];
-const ST = id => STORES.find(s => s.id === id);
+let PLACES = {}, STORES = BASE_STORES;
+const setPlaces = list => { list.forEach(p => { PLACES[p.id] = { menu: [], rsv: {}, ...PLACES[p.id], ...p }; }); STORES = BASE_STORES.concat(Object.values(PLACES)); };
+const ST = id => STORES.find(s => s.id === id) || PLACES[id] || { id, name: '알 수 없는 매장', cat: '한식', area: '', lat: 37.5088, lng: 126.9637, menu: [], rsv: {} };
 const catOf = st => CATS[st.cat] || CATS['한식'];
-const thumb = (st, s = 56, r = 14) => { if (st.img) return `<span class="thumb photo" style="width:${s}px;height:${s}px;border-radius:${r}px;background:#eee url(${st.img}) center/cover"></span>`; const [bg, fg, i] = catOf(st); return `<span class="thumb" style="width:${s}px;height:${s}px;border-radius:${r}px;background:linear-gradient(145deg,${bg},#fff 140%);color:${fg}">${I(i, Math.round(s * .52), 'd')}</span>`; };
-const hero = (st, label = '') => { if (st.img) return `<div class="hero photo" style="background:#ddd url(${st.img}) center 55%/cover"><span class="aib">AI 생성 이미지 · 실제 매장 사진 아님</span><span class="lbl">${label ? esc(label) + ' · ' : ''}대표 메뉴 ${esc(st.imgMenu)}</span></div>`; const [bg, fg, i] = catOf(st); return `<div class="hero" style="background:linear-gradient(160deg,${bg} 0%,#fff 130%);color:${fg}"><span style="position:relative">${I(i, 110, 'd')}</span>${label ? `<span class="lbl">${esc(label)}</span>` : ''}</div>`; };
+const thumb = (st, s = 56, r = 14) => { const im = st.img || st.thumb; if (im) return `<span class="thumb photo" style="width:${s}px;height:${s}px;border-radius:${r}px;background:#eee url(${esc(im)}) center/cover"></span>`; const [bg, fg, i] = catOf(st); return `<span class="thumb" style="width:${s}px;height:${s}px;border-radius:${r}px;background:linear-gradient(145deg,${bg},#fff 140%);color:${fg}">${I(i, Math.round(s * .52), 'd')}</span>`; };
+const hero = (st, label = '') => { if (!st.img && st.thumb) return `<div class="hero photo" style="background:#ddd url(${esc(st.thumb)}) center/cover"><span class="aib">회원이 올린 사진</span>${label ? `<span class="lbl">${esc(label)}</span>` : ''}</div>`; if (st.img) return `<div class="hero photo" style="background:#ddd url(${st.img}) center 55%/cover"><span class="aib">AI 생성 이미지 · 실제 매장 사진 아님</span><span class="lbl">${label ? esc(label) + ' · ' : ''}대표 메뉴 ${esc(st.imgMenu)}</span></div>`; const [bg, fg, i] = catOf(st); return `<div class="hero" style="background:linear-gradient(160deg,${bg} 0%,#fff 130%);color:${fg}"><span style="position:relative">${I(i, 110, 'd')}</span>${label ? `<span class="lbl">${esc(label)}</span>` : ''}</div>`; };
 const gb = g => `<span class="gb g${g + 1}">${g === 4 ? I('crown', 11, 'f') + ' ' : ''}${GRADES[g]}</span>`;
 const vb = v => `<span class="vb ${v}">${I(v === 'dine' ? 'seal-check' : 'info', 13, v === 'dine' ? 'f' : 'r')}${VER[v] ? VER[v][0] : '미인증'}</span>`;
 const DAYS = ['일','월','화','수','목','금','토'];
@@ -136,7 +139,7 @@ function postCard(r, showStore = true){
   const mine = r.uid === me();
   return `<article class="post"><div class="ph">${av(r.uid)}<div style="flex:1;min-width:0"><div class="nm">${esc(nick(r.uid))} ${gb(gradeOf(r.uid))}</div><div class="cap2">${ago(r.createdAt)}</div></div>${vb(r.v)}</div>
     ${showStore ? `<button type="button" class="pstore" data-act="go" data-s="store" data-id="${r.st}">${thumb(st, 40, 10)}<span style="flex:1;min-width:0"><b>${esc(st.name)}</b><span class="cap2">${esc(st.cat)} · ${esc(st.area)}</span></span>${stars(r.s, 13)}<span style="color:var(--g400)">${I('caret-right', 16)}</span></button>` : `<div style="margin:10px 0 8px">${stars(r.s, 15)}</div>`}
-    ${r.t ? `<p>${esc(r.t)}</p>` : ''}${kws || menus ? `<div class="kws">${kws}${menus}</div>` : ''}${vm ? `<div class="vmeta">${vm}</div>` : ''}
+    ${r.photo && /^data:image\/jpeg;base64,/.test(r.photo) ? `<img class="rphoto" src="${r.photo}" alt="${esc(st.name)} 사진" loading="lazy">` : ''}${r.t ? `<p>${esc(r.t)}</p>` : ''}${kws || menus ? `<div class="kws">${kws}${menus}</div>` : ''}${vm ? `<div class="vmeta">${vm}</div>` : ''}
     <div style="margin-top:10px">${mine ? `<button type="button" class="toggle" data-act="delReview" data-st="${r.st}">내 후기 삭제</button>` : `<button type="button" class="toggle mute" data-act="reportOpen" data-type="review" data-id="${esc(r.id || r.st + '_' + r.uid)}">신고</button>`}</div></article>`;
 }
 function meetCard(m){
@@ -149,6 +152,34 @@ function meetCard(m){
       <span class="t" style="display:block">${esc(m.title)}</span>
       <span class="cap" style="display:block">${when(m.startAt)} · ${esc(st.name)}</span>
       <span class="row" style="margin-top:8px;gap:6px">${av(m.host, 'sm')}<span style="font-size:13px;font-weight:600">${esc(nick(m.host))}</span>${gb(gradeOf(m.host))}<span class="sp"></span><span class="cap2" style="font-weight:600;color:var(--g700)">${n}/${m.cap}</span><span class="seat"><b style="width:${n / m.cap * 100}%"></b></span></span></span></button>`;
+}
+
+/* ---------- 매장 검색 ---------- */
+function storePicker(selId, act, placeholder){
+  const q = S.storeQ.trim(), sel = ST(selId);
+  const local = STORES.filter(x => !q || x.name.includes(q)).slice(0, q ? 6 : 8);
+  const kres = q && placesReady() ? (S.placeRes || []).filter(p => !local.some(l => l.id === p.id)) : [];
+  return `<input class="inp" id="store-q" placeholder="${placeholder}" value="${esc(S.storeQ)}" autocomplete="off" style="margin-top:10px">
+    <div class="selst">${thumb(sel, 40, 10)}<span style="flex:1;min-width:0"><b>${esc(sel.name)}</b><span class="cap2">${esc(sel.cname || sel.cat)} · ${esc(sel.area || '')}</span></span><span class="chip acc">선택됨</span></div>
+    ${local.length ? `<div class="pills" style="margin-top:10px">${local.map(x => `<button type="button" class="${selId === x.id ? 'on' : ''}" data-act="${act}" data-v="${x.id}">${esc(x.name)}</button>`).join('')}</div>` : ''}
+    ${q && placesReady() ? `<div class="kres">${S.placeBusy ? '<div class="cap2" style="padding:10px 2px">검색 중…</div>' : kres.length ? kres.map((p, i) => `<button type="button" class="kr" data-act="pickPlace" data-i="${(S.placeRes || []).indexOf(p)}" data-for="${act}">${I(p.cat === '카페' ? 'coffee' : 'fork-knife', 18, 'd')}<span style="flex:1;min-width:0"><b>${esc(p.name)}</b><span class="cap2">${esc(p.cname)} · ${esc(p.addr)}</span></span>${I('plus', 16)}</button>`).join('') + '<div class="cap2" style="padding:6px 2px 0">장소 정보: 카카오맵</div>' : `<div class="cap2" style="padding:10px 2px">검색 결과가 없어요</div>`}</div>`
+      : q && !placesReady() ? `<p class="hint">실제 장소 검색은 운영자가 카카오 키를 연결하면 켜져요. 지금은 기본 매장만 찾을 수 있어요.</p>` : ''}`;
+}
+let placeT;
+function queuePlaceSearch(){
+  const q = S.storeQ.trim(); clearTimeout(placeT);
+  if (!q || !placesReady()) { S.placeRes = []; return; }
+  S.placeBusy = true;
+  placeT = setTimeout(() => searchPlaces(q).then(r => { if (S.storeQ.trim() === q) { S.placeRes = r; S.placeBusy = false; render(); } }).catch(e => { console.warn(e); S.placeBusy = false; S.placeRes = []; render(); }), 300);
+}
+async function resizeImage(file, max, q){
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
+    const k = Math.min(1, max / Math.max(img.width, img.height)), w = Math.round(img.width * k), h = Math.round(img.height * k);
+    const c = document.createElement('canvas'); c.width = w; c.height = h; c.getContext('2d').drawImage(img, 0, 0, w, h);
+    return c.toDataURL('image/jpeg', q); // 다시 그려서 저장하므로 위치정보(EXIF)는 남지 않아요
+  } finally { URL.revokeObjectURL(url); }
 }
 
 /* ---------- 클릭형 후기 폼 ---------- */
@@ -167,10 +198,9 @@ function reviewForm(d, fixed){
   const st = ST(d.st), P = rfProgress(d), done = P.filter(Boolean).length;
   const sec = (i, t, sub, body) => `<div class="wsec"><h4><span class="n ${P[i] ? 'ok' : ''}">${P[i] ? '✓' : i + 1}</span>${t}</h4>${sub ? `<p class="sub">${sub}</p>` : ''}${body}</div>`;
   const pills = (f, o) => `<div class="pills">${o.map(v => `<button type="button" class="${d.visit[f] === v ? 'on' : ''}" data-act="visit" data-f="${f}" data-v="${esc(v)}">${esc(v)}</button>`).join('')}</div>`;
-  const q = S.storeQ.trim(), cand = STORES.filter(s => !q || s.name.includes(q)).slice(0, q ? 20 : 8);
   const menus = [...new Set((st.menu || []).concat(Object.keys(d.menu)))];
   return `<div class="wprog"><div class="row" style="font-size:13px;font-weight:600;color:var(--g600)"><span>${done}/4 완료</span><span class="sp"></span><span>클릭만으로 작성돼요</span></div><div class="bar"><b style="width:${done / 4 * 100}%"></b></div></div>
-    ${fixed ? '' : `<div class="wsec" style="padding-bottom:0"><h4>어디를 다녀왔나요?</h4><input class="inp" id="store-q" placeholder="매장 이름 검색 (흑석·상도·노량진 ${STORES.length}곳)" value="${esc(S.storeQ)}" style="margin-top:10px"><div class="pills" style="margin-top:10px">${cand.map(s => `<button type="button" class="${d.st === s.id ? 'on' : ''}" data-act="wst" data-v="${s.id}">${esc(s.name)}</button>`).join('')}${!cand.some(s => s.id === d.st) ? `<button type="button" class="on" data-act="wst" data-v="${d.st}">${esc(st.name)}</button>` : ''}</div></div>`}
+    ${fixed ? '' : `<div class="wsec" style="padding-bottom:0"><h4>어디를 다녀왔나요?</h4>${storePicker(d.st, 'wst', placesReady() ? '식당·카페 이름 검색 (전국)' : '매장 이름 검색')}</div>`}
     ${sec(0, '방문 정보', '언제, 누구와, 얼마나 기다렸는지', Object.entries(VISIT).map(([f, v]) => `<div class="qlab row" style="gap:5px">${I(v.ic, 16, 'd')}${v.n}</div>${pills(f, v.o)}`).join(''))}
     ${sec(1, '메뉴', '한 번 누르면 추천, 두 번 누르면 아쉬움', `<div class="pills">${menus.map(m => { const v = d.menu[m]; return `<button type="button" class="${v === 1 ? 'mup' : v === 0 ? 'mdn' : ''}" data-act="menuT" data-v="${esc(m)}">${v === 1 ? I('thumbs-up', 14, 'f') : v === 0 ? I('thumbs-down', 14, 'f') : I('plus', 14)}${esc(m)}</button>`; }).join('')}</div>
       <div class="row" style="margin-top:10px;gap:8px"><input class="inp" id="menu-new" placeholder="메뉴 직접 추가" maxlength="20" value="${esc(d.menuNew)}" style="flex:1"><button type="button" class="toggle" data-act="menuAdd">추가</button><button type="button" class="toggle" data-act="menuSkip">${d.menuSkip ? '✓ ' : ''}기억 안 나요</button></div>`)}
@@ -179,6 +209,9 @@ function reviewForm(d, fixed){
         ${d.crit[c.k] ? `<div class="pills kwl">${(d.crit[c.k] >= 2 ? c.pos : []).concat(d.crit[c.k] <= 2 ? c.neg : []).map(k => `<button type="button" class="${c.neg.includes(k) ? 'neg' : ''} ${d.kw.includes(k) ? 'on' : ''}" data-act="kwT" data-v="${esc(k)}">${c.neg.includes(k) ? '' : '+ '}${esc(k)}</button>`).join('')}</div>` : ''}</div>`).join(''))}
     ${sec(3, '총평', '1~5점, 늘 같은 점수보다 가려 주는 별점이 매장 점수에 더 크게 반영돼요', `${starPick('draft', d.s)}<div class="starlab">${STARTXT[d.s] || '&nbsp;'}</div><div class="qlab">다시 올 건가요?</div><div class="pills">${REVISIT.map((v, i) => `<button type="button" class="${d.revisit === i + 1 ? 'on' : ''}" data-act="revisit" data-v="${i + 1}">${v}</button>`).join('')}</div>`)}
     <div class="autosum"><div class="cap2" style="margin-bottom:4px;font-weight:700">${I('sparkle', 13, 'f')} 자동 요약</div>${autoSum(d)}</div>
+    <div class="wsec"><div class="qlab" style="margin-top:0">사진 <span class="cap2">선택 · 직접 찍은 사진만</span></div>
+      ${d.photo ? `<div class="phprev"><img src="${d.photo}" alt="올릴 사진"><button type="button" class="toggle" data-act="photoDel">사진 빼기</button></div>` : `<label class="phadd">${I('camera', 22, 'd')}<span>사진 추가</span><input type="file" id="rv-photo" accept="image/*" hidden></label>`}
+      <p class="hint" style="margin-top:6px">이 매장에 아직 사진이 없으면 내 사진이 대표 사진이 돼요. 위치정보는 지우고 올려요.</p></div>
     <div class="wsec"><div class="qlab" style="margin-top:0">덧붙일 말 <span class="cap2">선택 · 500자</span></div><textarea id="d-t" data-d="t" maxlength="500" placeholder="예: 볶음밥은 꼭 시키세요" style="min-height:76px">${esc(d.t)}</textarea>
     <p class="hint">${d.meet ? '이 모임에 체크인했기 때문에 <b>동석 인증 ×1.5</b>로 반영돼요.' : '일반 후기는 미인증(×0.5)으로 반영돼요. 모임에서 체크인 후 쓰면 동석 인증(×1.5)이 돼요.'} 한 매장에 한 사람 한 건만 남고, 다시 쓰면 바뀌어요.</p>${errBox()}</div>`;
 }
@@ -263,6 +296,8 @@ const screens = {
     const rv = S.reviews.filter(r => r.st === id);
     return `<div class="scroll" style="padding-bottom:40px">${hero(st, st.cat)}<button type="button" class="ib float" data-act="back" aria-label="뒤로">${I('caret-left', 22)}</button>
       <div class="pad"><div class="ttl">${esc(st.name)}</div><div class="cap row" style="gap:4px">${I('map-pin', 15, 'f')}${esc(st.area)} · 후기 ${a.n}개${a.n ? ` · 재방문 의향 ${a.revisit}%` : ''}</div>
+      ${st.addr ? `<div class="cap2" style="margin-top:4px">${esc(st.addr)}${st.phone ? ' · ' + esc(st.phone) : ''}</div>` : ''}
+      ${st.url ? `<a class="kakaolink" href="${esc(st.url)}" target="_blank" rel="noopener">${I('arrow-square-out', 15)}카카오맵에서 사진·영업시간 보기</a>` : ''}
       ${k.shown ? `<div class="score"><div><div class="big">${f2(k.score)}</div><div class="lab">MATCHIN 점수</div></div><div class="cmp"><div class="cap2">단순 평균이었다면</div><div class="o">${f2(k.avg)}</div></div></div>`
         : `<div class="score" style="align-items:center"><div><div style="font-size:20px;font-weight:700">평가 수집 중</div><div class="lab">믿을 만한 별점이 아직 부족해요</div></div><div class="cmp"><div class="cap2">가중치 ${f1(k.sw)} / 5</div><div class="cap2">작성자 ${k.n} / 3명</div></div></div>`}
       <div class="acts" style="grid-template-columns:repeat(3,1fr)"><button type="button" class="pri" data-act="rsvOpen" data-id="${id}">${I('calendar-check', 22, 'f')}예약·웨이팅</button><button type="button" data-act="writeHere" data-id="${id}">${I('pencil-simple', 22, 'd')}후기 쓰기</button><button type="button" data-act="shareOpen" data-id="${id}">${I('share-network', 22, 'd')}채팅 공유</button></div></div>
@@ -440,12 +475,11 @@ const screens = {
     const f = S.form; f.store ??= 's3'; f.cap ??= 4; f.title ??= ''; f.recent ??= ''; f.fav ??= ''; f.must ??= ''; f.pledge ??= false; f.rsv ??= ''; f.tags ??= []; f.when ??= '';
     const st = ST(f.store), R = st.rsv || {};
     const RS = [['캐치테이블', R.catch], ['테이블링', R.tabling], ['네이버 예약', R.naver], ['전화·현장 대기', '가능']];
-    const q = S.storeQ.trim(), cand = STORES.filter(s => !q || s.name.includes(q)).slice(0, q ? 20 : 8);
     return `${navBar('모임 열기')}<div class="scroll"><div class="pad">
       <div class="box" style="display:flex;gap:10px;margin-top:4px"><span style="color:var(--acc);flex:none">${I('chef-hat', 20, 'd')}</span><span style="font-size:13.5px;line-height:1.55;color:var(--g700)">누구나 무료로 열 수 있어요. <b style="color:var(--ink)">미식 소개서</b>가 참가자에게 그대로 보여요.</span></div>
       <div class="field"><label for="c-title">모임 이름</label><input id="c-title" class="inp" data-f="title" maxlength="40" value="${esc(f.title)}" placeholder="예: 신입생 환영 흑석시장 순댓국"></div>
       <div class="field"><label for="c-when">날짜·시간</label><input id="c-when" class="inp" type="datetime-local" data-f="when" value="${esc(f.when)}"></div>
-      <div class="field"><span class="lb">매장</span><input class="inp" id="store-q" placeholder="매장 이름 검색" value="${esc(S.storeQ)}"><div class="pills" style="margin-top:10px">${cand.map(s => `<button type="button" class="${f.store === s.id ? 'on' : ''}" data-act="cstore" data-v="${s.id}">${esc(s.name)}</button>`).join('')}${!cand.some(s => s.id === f.store) ? `<button type="button" class="on">${esc(st.name)}</button>` : ''}</div></div>
+      <div class="field"><span class="lb">매장</span>${storePicker(f.store, 'cstore', placesReady() ? '식당·카페 이름 검색 (전국)' : '매장 이름 검색')}</div>
       <div class="field"><span class="lb">좌석 예약 방법</span><div class="pills">${RS.map(([n, v]) => `<button type="button" class="${f.rsv === n ? 'on' : ''}" data-act="crsv" data-v="${n}">${n}</button>`).join('')}</div><p class="hint">예약은 주최자가 해당 앱에서 직접 해 주세요. MATCHIN은 예약을 대신하지 않아요.</p></div>
       <div class="field"><span class="lb">인원 (나 포함)</span><div class="seg">${[3, 4, 5, 6].map(n => `<button type="button" class="${f.cap === n ? 'on' : ''}" data-act="ccap" data-v="${n}">${n}명</button>`).join('')}</div></div>
       <div class="field"><span class="lb">이런 분 환영 <span class="cap2">선택</span></span><div class="pills">${TAGS.map(t => `<button type="button" class="${f.tags.includes(t) ? 'on' : ''}" data-act="ctag" data-v="${t}">${t}</button>`).join('')}</div></div>
@@ -503,8 +537,8 @@ function sheetHTML(){
   const sh = S.sheet; if (!sh) return '';
   const wrap = (t, inner) => `<div class="scrim" data-act="closeSheet"><div class="sheet" role="dialog" aria-label="${t}" data-stop="1"><div class="grab"></div>${inner}</div></div>`;
   if (sh.type === 'rsv') {
-    const st = ST(sh.id), q = encodeURIComponent(st.name + ' 흑석');
-    const rows = [['naver', `https://map.naver.com/p/search/${q}`], ['kakao', `https://map.kakao.com/?q=${q}`], ['catch', 'https://app.catchtable.co.kr/'], ['tabling', 'https://www.tabling.co.kr/']];
+    const st = ST(sh.id), q = encodeURIComponent(st.name + (st.addr ? ' ' + st.addr.split(' ').slice(1, 3).join(' ') : ' 흑석'));
+    const rows = [['naver', `https://map.naver.com/p/search/${q}`], ['kakao', st.url || `https://map.kakao.com/?q=${q}`], ['catch', 'https://app.catchtable.co.kr/'], ['tabling', 'https://www.tabling.co.kr/']];
     return wrap('예약', `<h3>예약·웨이팅</h3><div class="row" style="gap:10px;margin:10px 0 4px">${thumb(st, 40, 12)}<div><b>${esc(st.name)}</b><div class="cap2">${esc(st.area)}</div></div></div>
       ${rows.map(([k, u]) => `<div class="rsv"><span class="lg" style="background:${PLAT[k][1]};${k === 'kakao' ? 'color:#3A1D1D' : ''}">${PLAT[k][2]}</span><div style="flex:1"><b style="font-size:15px">${PLAT[k][0]}</b><div class="st" style="color:var(--g500)">${k === 'naver' || k === 'kakao' ? '이 매장 검색 결과로 열기' : '앱에서 매장 이름으로 검색'}</div></div><a href="${u}" target="_blank" rel="noopener">열기 ↗</a></div>`).join('')}
       <p class="hint">MATCHIN은 예약을 직접 받지 않고 매장이 쓰는 앱으로 연결만 해요.</p>`);
@@ -554,7 +588,7 @@ const A = {
   editProfile: () => { const u = S.me || {}; S.form = { nickname: u.nickname, status: u.status, school: u.school, area: u.area, cats: (u.cats || []).slice(), pledge: true }; go({ s: 'onboard' }); },
   logout: () => B.logout(),
   pick: d => { if (d.k === 'draft') S.draft.s = +d.v; else if (d.k.startsWith('rate:')) { S.form.rate = S.form.rate || {}; S.form.rate[d.k.slice(5)] = +d.v; } render(); },
-  wst: d => { const t = S.draft.t; S.draft = newDraft(d.v); S.draft.t = t; render(); },
+  wst: d => { const t = S.draft.t, ph = S.draft.photo, th = S.draft.thumb; S.draft = newDraft(d.v); Object.assign(S.draft, { t, photo: ph, thumb: th }); S.storeQ = ''; S.placeRes = []; render(); },
   visit: d => { S.draft.visit[d.f] = S.draft.visit[d.f] === d.v ? '' : d.v; render(); },
   menuT: d => { const v = S.draft.menu[d.v]; if (v === undefined) S.draft.menu[d.v] = 1; else if (v === 1) S.draft.menu[d.v] = 0; else delete S.draft.menu[d.v]; render(); },
   menuAdd: () => { const m = val('menu-new').trim().slice(0, 20); if (m) { S.draft.menu[m] = 1; S.draft.menuNew = ''; } render(); },
@@ -578,7 +612,9 @@ const A = {
   },
   finishRate: d => { const R = S.form.rate || {}; const ids = Object.keys(R); if (!ids.length) { S.err = '별점을 하나 이상 골라 주세요.'; return render(); } run(async () => { for (const u of ids) await B.rate(d.id, me(), u, R[u]); S.form = {}; back(); }, '신뢰 별점을 보냈어요'); },
   ccap: d => { S.form.cap = +d.v; render(); },
-  cstore: d => { S.form.store = d.v; render(); },
+  cstore: d => { S.form.store = d.v; S.storeQ = ''; S.placeRes = []; render(); },
+  pickPlace: d => { const p = (S.placeRes || [])[+d.i]; if (!p) return; setPlaces([p]); B.savePlace(p, me()).catch(e => { console.warn(e); toast(errText(e), true); }); A[d.for]({ v: p.id }); },
+  photoDel: () => { S.draft.photo = ''; S.draft.thumb = ''; render(); },
   crsv: d => { S.form.rsv = d.v; render(); },
   ctag: d => { const t = S.form.tags, i = t.indexOf(d.v); if (i >= 0) t.splice(i, 1); else t.push(d.v); render(); },
   pledge: () => { S.form.pledge = !S.form.pledge; render(); },
@@ -616,10 +652,10 @@ const A = {
 };
 async function saveDraft(dine){
   const d = S.draft, e = validDraft(d); if (e) { S.err = e; return render(); }
-  const r = { uid: me(), st: d.st, s: d.s, v: dine ? 'dine' : 'none', meet: dine ? d.meet : null, crit: { ...d.crit }, kw: [...d.kw], menu: { ...d.menu }, visit: Object.fromEntries(Object.entries(d.visit).filter(([, v]) => v)), revisit: d.revisit, t: (d.t || '').trim().slice(0, 500) };
+  const r = { uid: me(), st: d.st, s: d.s, v: dine ? 'dine' : 'none', meet: dine ? d.meet : null, crit: { ...d.crit }, kw: [...d.kw], menu: { ...d.menu }, visit: Object.fromEntries(Object.entries(d.visit).filter(([, v]) => v)), revisit: d.revisit, t: (d.t || '').trim().slice(0, 500), photo: d.photo || '' };
   const existing = S.reviews.find(x => x.uid === me() && x.st === d.st);
   if (!dine && existing && existing.v === 'dine') { S.err = '이 매장에는 이미 동석 인증 후기가 있어요. 일반 후기로 덮어쓸 수 없어요.'; return render(); }
-  await run(async () => { await B.saveReview(r); S.draft = null; if (dine) { if (cur().s === 'dineReview') S.stack.pop(); } else { S.tab = 'home'; S.stack = [{ s: 'home' }]; } }, existing ? '후기를 고쳤어요' : '후기를 올렸어요');
+  await run(async () => { await B.saveReview(r); const pl = PLACES[d.st]; if (d.thumb && pl && !pl.thumb) await B.setPlaceThumb(d.st, d.thumb, me()).catch(e => console.warn('thumb', e)); S.draft = null; if (dine) { if (cur().s === 'dineReview') S.stack.pop(); } else { S.tab = 'home'; S.stack = [{ s: 'home' }]; } }, existing ? '후기를 고쳤어요' : '후기를 올렸어요');
 }
 function sendMsg(t){ t = (t || '').trim().slice(0, 500); if (!t || banned()) return; const r = roomsOf().find(x => x.id === cur().id); if (!r) return; S.chatDraft = ''; B.sendMessage(r.path, { uid: me(), t }).catch(e => { S.err = errText(e); toast(S.err); }); }
 
@@ -665,9 +701,14 @@ $app.addEventListener('input', e => {
   if (t.dataset.d && S.draft) S.draft[t.dataset.d] = t.value;
   if (t.id === 'chat-in') S.chatDraft = t.value;
   if (t.id === 'menu-new' && S.draft) S.draft.menuNew = t.value;
-  if (t.id === 'store-q') { S.storeQ = t.value; if (!e.isComposing) render(); }
+  if (t.id === 'store-q') { S.storeQ = t.value; queuePlaceSearch(); if (!e.isComposing) render(); }
 });
-$app.addEventListener('compositionend', e => { if (e.target.id === 'store-q') { S.storeQ = e.target.value; render(); } });
+$app.addEventListener('compositionend', e => { if (e.target.id === 'store-q') { S.storeQ = e.target.value; queuePlaceSearch(); render(); } });
+$app.addEventListener('change', async e => {
+  if (e.target.id !== 'rv-photo' || !e.target.files[0] || !S.draft) return;
+  const f = e.target.files[0]; if (!/^image\//.test(f.type)) return toast('사진 파일만 올릴 수 있어요', true);
+  try { S.draft.photo = await resizeImage(f, 900, .72); S.draft.thumb = await resizeImage(f, 280, .7); if (S.draft.photo.length > 215000) S.draft.photo = await resizeImage(f, 700, .6); render(); } catch (x) { toast('사진을 읽지 못했어요', true); }
+});
 $app.addEventListener('keydown', e => { if (e.target.id === 'chat-in' && e.key === 'Enter' && !e.isComposing) { e.preventDefault(); sendMsg(e.target.value); } if (e.target.id === 'menu-new' && e.key === 'Enter' && !e.isComposing) { e.preventDefault(); A.menuAdd(); } });
 const _errText = errText;
 
@@ -684,6 +725,7 @@ let unsubs = [];
       unsubs.push(B.watchUsers(list => { S.users = Object.fromEntries(list.map(x => [x.id, x])); render(); }));
       unsubs.push(B.watchReviews(list => { S.allReviews = list; S.reviews = list.filter(r => !r.hidden); render(); }));
       unsubs.push(B.watchMeets(list => { S.allMeets = list.map(m => ({ members: [], checkedIn: [], ...m })); S.meets = S.allMeets.filter(m => m.status !== 'hidden'); S.meetsLoaded = true; render(); }));
+      unsubs.push(B.watchPlaces(list => { setPlaces(list); render(); }));
       unsubs.push(B.watchNotice(n => { S.notice = n; render(); }));
       unsubs.push(B.watchBans(list => { S.bans = list; render(); }));
       if (ADMIN_EMAILS.includes(u.email) && u.verified) unsubs.push(B.watchReports(list => { S.reports = list; render(); }, e => console.warn('reports', e)));

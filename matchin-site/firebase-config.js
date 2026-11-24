@@ -7,3 +7,6 @@ export const firebaseConfig = {
   messagingSenderId: "336082367023",
   appId: "1:336082367023:web:3df31a06369257a9688cda"
 };
+
+// 카카오 개발자 앱의 JavaScript 키 (웹 도메인으로 사용처가 제한돼요). 비어 있으면 기본 매장 목록만 검색돼요.
+export const kakaoJsKey = 'a65eed3257e2d3ba0a6b1b9fae4b8ac9';
